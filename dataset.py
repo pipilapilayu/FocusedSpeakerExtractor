@@ -1,13 +1,13 @@
+from functools import partial
 import os
 import random
 import torchaudio
 import torch
 from torch.utils.data import Dataset, DataLoader
-from typing import Dict, List, Tuple, Iterable
+from typing import Dict, List, Optional, Tuple, Callable
 from glob import glob
 import librosa
 import librosa.display
-import numpy as np
 import matplotlib.pyplot as plt
 import pytest
 
@@ -28,7 +28,68 @@ class CachedLoader:
     def __getitem__(self, key: str) -> torch.Tensor:
         if key not in self.map:
             self.map[key] = read_wav_44100(key)
+
         return self.map[key]
+
+
+class AudioDataset(Dataset):
+    """
+    Accept dirty folder. Used by evaluation.
+    We don't train generalizable model, since we already know what they gonna be applied for.
+    This dataset loads data to be applied for, i.e. evaluation / real world testing.
+    """
+
+    @staticmethod
+    def pad_seq(alignment: int, x: torch.Tensor):
+        """
+        Args:
+            alignment: make sure T is divisible by alignment by ceiling up
+            x: [1 T]
+        """
+        t = x.shape[-1]
+        t += (alignment - t % alignment) % alignment
+        y = torch.zeros((1, t))
+        y[:, : x.shape[-1]] = x
+        return y
+
+    def __init__(
+        self, alignment: int, dirty_folders: List[str], segment_len: int = 60 * 44100
+    ) -> None:
+        self.dirty_files = [
+            f
+            for d in dirty_folders
+            for f in glob(os.path.join(d, "*.wav"))
+            + glob(os.path.join(d, "*.m4a"))
+            + glob(os.path.join(d, "*.mp3"))
+        ]
+        self.segment_len = segment_len
+        self.alignment = alignment
+        self.cached_loader = CachedLoader()
+
+    def __len__(self) -> int:
+        return len(self.dirty_files)
+
+    def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
+        dirty_file = self.dirty_files[index]
+        dirty_wav = self.cached_loader[dirty_file]
+
+        dirty_len = dirty_wav.shape[-1]
+        random_start = random.randint(0, dirty_len - self.segment_len)
+
+        random_dirty_seg = dirty_wav[
+            ..., random_start : random_start + self.segment_len
+        ]
+        dirty_length = torch.tensor([self.segment_len], dtype=torch.long)
+        return self.pad_seq(self.alignment, random_dirty_seg).squeeze(), dirty_length
+
+
+class AudioDataLoader(DataLoader):
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
 
 
 MixedAudioDatasetOutput = Tuple[torch.Tensor, torch.Tensor]
@@ -43,13 +104,11 @@ class MixedAudioDataset(Dataset):
     1. randomly select a dirty wav from files in all dirty files
     2. randomly select a start point in dirty wav
     3. chop a segment with length = clean wav
-    4. mix, but dirty file got random 0.8-1.2x amp
+    4. mix, but dirty file got random 0.6-1.2x amp
     5. returns mixed and clean wav
     """
 
     def __init__(self, clean_folder: str, dirty_folders: List[str]):
-        self.clean_folder = clean_folder
-        self.dirty_folders = dirty_folders
         self.clean_files = [f for f in glob(os.path.join(clean_folder, "*.wav"))]
         self.dirty_files = [
             f
@@ -81,7 +140,7 @@ class MixedAudioDataset(Dataset):
         start_point = random.randint(0, len_dirty - len_clean)
 
         dirty_segment = dirty_audio[:, start_point : start_point + len_clean]
-        overlapped_audio = clean_audio + random.uniform(0.8, 1.2) * dirty_segment
+        overlapped_audio = clean_audio + random.uniform(0.6, 1.2) * dirty_segment
 
         return overlapped_audio
 
@@ -104,7 +163,7 @@ class MixedAudioDataset(Dataset):
         mixed_wav = self.overlap_dirty_segment(clean_wav, dirty_wav)
 
         # mixed_wav = self.overlap_dirty_segment(
-        #     clean_wav, (torch.rand_like(clean_wav) * 2 - 1) * 0.01
+        #     clean_wav, (torch.rand_like(clean_wav) * 2 - 1) * random.uniform(0.002, 0.01)
         # )
 
         return mixed_wav, clean_wav
@@ -128,8 +187,13 @@ def pad_seq_n_stack(wavs: List[torch.Tensor], target_len: int) -> torch.Tensor:
 MixedAudioDataLoaderOutput = Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
 
-def collate_fn(batch: List[MixedAudioDatasetOutput]) -> MixedAudioDataLoaderOutput:
+def collate_fn(
+    alignment: int, batch: List[MixedAudioDatasetOutput]
+) -> MixedAudioDataLoaderOutput:
     """
+    Args:
+        alignment: make sure the padded size is divisible by W / 2, required by Encoder in DPTNet
+        batch: list of dataset output
     Returns:
         (
             batch_padded_mixed_wav: B x T, torch.Tensor
@@ -137,11 +201,11 @@ def collate_fn(batch: List[MixedAudioDatasetOutput]) -> MixedAudioDataLoaderOutp
             batch_padded_clean_wav: B x T, torch.Tensor
         )
     """
-    # batch.iter().map(|(mixed, _clean)| mixed.shape.last().unwrap()).collect::<Tensor>()
     prepad_lengths = torch.tensor(
         [mixed.shape[-1] for mixed, _ in batch], dtype=torch.long
     )
     pad_length = int(prepad_lengths.max().item())
+    pad_length += (alignment - pad_length % alignment) % alignment
 
     mixed_wavs, clean_wavs = zip(*batch)
     batch_padded_mixed_wav = pad_seq_n_stack(list(mixed_wavs), pad_length)
@@ -151,10 +215,8 @@ def collate_fn(batch: List[MixedAudioDatasetOutput]) -> MixedAudioDataLoaderOutp
 
 
 class MixedAudioDataLoader(DataLoader):
-    def __init__(self, *args, **kwargs):
-        super(MixedAudioDataLoader, self).__init__(
-            collate_fn=collate_fn, *args, **kwargs
-        )
+    def __init__(self, alignment: int, *args, **kwargs):
+        super().__init__(collate_fn=partial(collate_fn, alignment), *args, **kwargs)
 
 
 @pytest.fixture
@@ -170,7 +232,7 @@ def test_dataset():
 
 def test_dataset_length(test_dataset):
     # Check if dataset length is as expected
-    assert len(test_dataset) == 3063
+    assert len(test_dataset) == 3025
 
 
 def plot_melspectrogram(wav, ax, fs=44100, title="Melspectrogram"):
@@ -197,7 +259,7 @@ def test_audio_loading(test_dataset):
 
 
 def test_loader(test_dataset):
-    loader = MixedAudioDataLoader(test_dataset, batch_size=4)
+    loader = MixedAudioDataLoader(alignment=8, dataset=test_dataset, batch_size=4)
     for padded_mixed, lengths, padded_clean in loader:
         fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(10, 8))
 
