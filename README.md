@@ -15,7 +15,7 @@ You need clean data and dirty data to do train this model. Here's an example of 
 ```
 datasets
 ├── clean
-│   └── pi
+│   └── spk0
 │       └── bootstrap
 │           ├── src_0_0.wav
 │           ├── src_0_1.wav
@@ -28,7 +28,7 @@ datasets
     │   └── stardew_valley
     │       ├── src_0.wav
     │       └── src_1.wav
-    └── pi
+    └── spk0
         └── stardew_valley
             ├── src_0.wav
             ├── src_1.wav
