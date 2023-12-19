@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 import pytest
 
 
+Tensor = torch.Tensor
+
+
 def read_wav_44100(filename: str) -> torch.Tensor:
     y, fs = torchaudio.load(filename)
     if y.shape[0] > 1:
@@ -53,7 +56,10 @@ class AudioDataset(Dataset):
         return y
 
     def __init__(
-        self, alignment: int, dirty_folders: List[str], segment_len: int = 60 * 44100
+        self,
+        alignment: int,
+        dirty_folders: List[str],
+        segment_len: Optional[int],
     ) -> None:
         self.dirty_files = [
             f
@@ -72,15 +78,21 @@ class AudioDataset(Dataset):
     def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
         dirty_file = self.dirty_files[index]
         dirty_wav = self.cached_loader[dirty_file]
-
         dirty_len = dirty_wav.shape[-1]
-        random_start = random.randint(0, dirty_len - self.segment_len)
 
-        random_dirty_seg = dirty_wav[
-            ..., random_start : random_start + self.segment_len
-        ]
-        dirty_length = torch.tensor([self.segment_len], dtype=torch.long)
-        return self.pad_seq(self.alignment, random_dirty_seg).squeeze(), dirty_length
+        if self.segment_len is not None:
+            random_start = random.randint(0, dirty_len - self.segment_len)
+
+            random_dirty_seg = dirty_wav[
+                ..., random_start : random_start + self.segment_len
+            ]
+            dirty_length = torch.tensor([self.segment_len], dtype=torch.long)
+            return self.pad_seq(
+                self.alignment, random_dirty_seg
+            ).squeeze(), dirty_length
+        else:
+            dirty_length = torch.tensor([dirty_len], dtype=torch.long)
+            return self.pad_seq(self.alignment, dirty_wav).squeeze(), dirty_length
 
 
 class AudioDataLoader(DataLoader):
@@ -144,6 +156,19 @@ class MixedAudioDataset(Dataset):
 
         return overlapped_audio
 
+    @staticmethod
+    def apply_offset(wav: torch.Tensor, offset: int) -> Tensor:
+        # wav[0] would be located at return_wav[offset].
+        if offset == 0:
+            return wav
+        wav_len = wav.shape[-1]
+        res = torch.zeros_like(wav)
+        if offset < 0:
+            res[..., : wav_len + offset] = wav[..., -offset:]
+        else:
+            res[..., offset:] = wav[..., : wav_len - offset]
+        return res
+
     def __getitem__(self, idx: int) -> MixedAudioDatasetOutput:
         """
         Args:
@@ -157,16 +182,23 @@ class MixedAudioDataset(Dataset):
         clean_file = self.clean_files[idx]
         clean_wav = self.cached_loader[clean_file]
 
+        # if random.random() < 0.5:
+        #     clean_wav *= 0
+
+        clean_wav_len = clean_wav.shape[-1]
+        offset = random.randint(-(clean_wav_len >> 1), clean_wav_len >> 1)
+        offset_clean_wav = self.apply_offset(clean_wav, offset)
+
         dirty_file = random.choice(self.dirty_files)
         dirty_wav = self.cached_loader[dirty_file]
 
-        mixed_wav = self.overlap_dirty_segment(clean_wav, dirty_wav)
+        mixed_wav = self.overlap_dirty_segment(offset_clean_wav, dirty_wav)
 
         # mixed_wav = self.overlap_dirty_segment(
         #     clean_wav, (torch.rand_like(clean_wav) * 2 - 1) * random.uniform(0.002, 0.01)
         # )
 
-        return mixed_wav, clean_wav
+        return mixed_wav, offset_clean_wav
 
 
 def pad_seq_n_stack(wavs: List[torch.Tensor], target_len: int) -> torch.Tensor:

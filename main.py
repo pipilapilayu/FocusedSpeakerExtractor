@@ -60,7 +60,9 @@ def main(args: MainArgs):
 
     # data
     tr_dataset = MixedAudioDataset(args.clean_dir, args.dirty_dirs)
-    cv_dataset = AudioDataset(alignment=args.w >> 1, dirty_folders=args.target_dirs)
+    cv_dataset = AudioDataset(
+        alignment=args.w >> 1, dirty_folders=args.target_dirs, segment_len=None
+    )
     tr_loader = MixedAudioDataLoader(
         alignment=args.w
         >> 1,  # ensure T devisible by W / 2, checkout DPTNet.models.Encoder for more details
