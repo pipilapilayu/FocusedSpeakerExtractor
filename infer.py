@@ -3,7 +3,7 @@ from typing import Callable
 from DPTNet.solver import Solver
 import torch
 import torchaudio
-from main import MainArgs
+from infer import MainArgs
 from DPTNet.models import DPTNet_base
 import soundfile
 import os
