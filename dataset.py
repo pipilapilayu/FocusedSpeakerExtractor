@@ -4,18 +4,17 @@ import random
 import torchaudio
 import torch
 from torch.utils.data import Dataset, DataLoader
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Dict, List, Tuple
 from glob import glob
 import librosa
 import librosa.display
 import matplotlib.pyplot as plt
-import pytest
 
 
 Tensor = torch.Tensor
 
 
-def read_wav_44100(filename: str) -> torch.Tensor:
+def read_wav_44100(filename: str) -> Tensor:
     y, fs = torchaudio.load(filename)
     if y.shape[0] > 1:
         y = torch.mean(y, dim=0, keepdim=True)
@@ -26,85 +25,16 @@ def read_wav_44100(filename: str) -> torch.Tensor:
 
 class CachedLoader:
     def __init__(self) -> None:
-        self.map: Dict[str, torch.Tensor] = {}
+        self.map: Dict[str, Tensor] = {}
 
-    def __getitem__(self, key: str) -> torch.Tensor:
+    def __getitem__(self, key: str) -> Tensor:
         if key not in self.map:
             self.map[key] = read_wav_44100(key)
 
         return self.map[key]
 
 
-class AudioDataset(Dataset):
-    """
-    Accept dirty folder. Used by evaluation.
-    We don't train generalizable model, since we already know what they gonna be applied for.
-    This dataset loads data to be applied for, i.e. evaluation / real world testing.
-    """
-
-    @staticmethod
-    def pad_seq(alignment: int, x: torch.Tensor):
-        """
-        Args:
-            alignment: make sure T is divisible by alignment by ceiling up
-            x: [1 T]
-        """
-        t = x.shape[-1]
-        t += (alignment - t % alignment) % alignment
-        y = torch.zeros((1, t))
-        y[:, : x.shape[-1]] = x
-        return y
-
-    def __init__(
-        self,
-        alignment: int,
-        dirty_folders: List[str],
-        segment_len: Optional[int],
-    ) -> None:
-        self.dirty_files = [
-            f
-            for d in dirty_folders
-            for f in glob(os.path.join(d, "*.wav"))
-            + glob(os.path.join(d, "*.m4a"))
-            + glob(os.path.join(d, "*.mp3"))
-        ]
-        self.segment_len = segment_len
-        self.alignment = alignment
-        self.cached_loader = CachedLoader()
-
-    def __len__(self) -> int:
-        return len(self.dirty_files)
-
-    def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
-        dirty_file = self.dirty_files[index]
-        dirty_wav = self.cached_loader[dirty_file]
-        dirty_len = dirty_wav.shape[-1]
-
-        if self.segment_len is not None:
-            random_start = random.randint(0, dirty_len - self.segment_len)
-
-            random_dirty_seg = dirty_wav[
-                ..., random_start : random_start + self.segment_len
-            ]
-            dirty_length = torch.tensor([self.segment_len], dtype=torch.long)
-            return self.pad_seq(
-                self.alignment, random_dirty_seg
-            ).squeeze(), dirty_length
-        else:
-            dirty_length = torch.tensor([dirty_len], dtype=torch.long)
-            return self.pad_seq(self.alignment, dirty_wav).squeeze(), dirty_length
-
-
-class AudioDataLoader(DataLoader):
-    def __init__(
-        self,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-
-
-MixedAudioDatasetOutput = Tuple[torch.Tensor, torch.Tensor]
+MixedAudioDatasetOutput = Tuple[Tensor, Tensor]
 
 
 class MixedAudioDataset(Dataset):
@@ -135,29 +65,57 @@ class MixedAudioDataset(Dataset):
         return len(self.clean_files)
 
     @staticmethod
-    def overlap_dirty_segment(
-        clean_audio: torch.Tensor, dirty_audio: torch.Tensor
-    ) -> torch.Tensor:
-        # randomly select start point from [0..len(dirty) - len(clean))
-        # overlap dirty[start:start + len(clean)]
+    def get_max_mul(clean: Tensor, dirty: Tensor) -> float:
+        # res = c + w * d, we want res in [-1, 1], so w * d in [-1 - c, 1 - c] and thus w in [(-1 - c) / d, (1 - c) / d]?
+        # for each sample we calculate range, then get abs min?
 
-        # Assert audio is in shape [Channels, Length]
+        assert (
+            clean.size() == dirty.size()
+        ), "Clean and dirty tensors must be of the same size"
+
+        # Mask for positive and negative dirty samples
+        positive_mask = dirty > 0
+        negative_mask = dirty < 0
+
+        # Calculate lower and upper bounds
+        lowerbound = (-1 - clean) / dirty
+        upperbound = (1 - clean) / dirty
+
+        # Initialize max_w with a large number
+        max_w = float("inf")
+
+        # Update max_w using the appropriate bounds depending on the sign of dirty samples
+        if positive_mask.any():
+            max_w = min(
+                max_w,
+                lowerbound[positive_mask].abs().min().item(),
+                upperbound[positive_mask].abs().min().item(),
+            )
+        if negative_mask.any():
+            max_w = min(
+                max_w,
+                lowerbound[negative_mask].abs().min().item(),
+                upperbound[negative_mask].abs().min().item(),
+            )
+
+        return max_w
+
+    @staticmethod
+    def overlap_dirty_segment(clean_audio: Tensor, dirty_audio: Tensor) -> Tensor:
         len_clean = clean_audio.shape[-1]
         len_dirty = dirty_audio.shape[-1]
 
-        if len_dirty < len_clean:
-            raise ValueError("Dirty audio must be longer than clean audio.")
-
         # Randomly select a start point for the dirty audio segment
         start_point = random.randint(0, len_dirty - len_clean)
-
         dirty_segment = dirty_audio[:, start_point : start_point + len_clean]
-        overlapped_audio = clean_audio + random.uniform(0.6, 1.2) * dirty_segment
+
+        max_mul = MixedAudioDataset.get_max_mul(clean_audio, dirty_segment)
+        overlapped_audio = clean_audio + max_mul * dirty_segment
 
         return overlapped_audio
 
     @staticmethod
-    def apply_offset(wav: torch.Tensor, offset: int) -> Tensor:
+    def apply_offset(wav: Tensor, offset: int) -> Tensor:
         # wav[0] would be located at return_wav[offset].
         if offset == 0:
             return wav
@@ -175,15 +133,12 @@ class MixedAudioDataset(Dataset):
             idx: int, some random index ranging in [0..len(self))
         Returns:
             (
-                mixed_wav: 1 x T, torch.Tensor. T is number of samples.
-                clean_wav: 1 x T, torch.Tensor
+                mixed_wav: 1 x T, Tensor. T is number of samples.
+                clean_wav: 1 x T, Tensor
             )
         """
         clean_file = self.clean_files[idx]
         clean_wav = self.cached_loader[clean_file]
-
-        # if random.random() < 0.5:
-        #     clean_wav *= 0
 
         clean_wav_len = clean_wav.shape[-1]
         offset = random.randint(-(clean_wav_len >> 1), clean_wav_len >> 1)
@@ -194,20 +149,16 @@ class MixedAudioDataset(Dataset):
 
         mixed_wav = self.overlap_dirty_segment(offset_clean_wav, dirty_wav)
 
-        # mixed_wav = self.overlap_dirty_segment(
-        #     clean_wav, (torch.rand_like(clean_wav) * 2 - 1) * random.uniform(0.002, 0.01)
-        # )
-
         return mixed_wav, offset_clean_wav
 
 
-def pad_seq_n_stack(wavs: List[torch.Tensor], target_len: int) -> torch.Tensor:
+def pad_seq_n_stack(wavs: List[Tensor], target_len: int) -> Tensor:
     """
     Args:
-        wavs: list of 1 x T torch.Tensor, T may vary.
+        wavs: list of 1 x T Tensor, T may vary.
         target_len: assert to be max T in that varying 1 x T tensor list.
     Returns:
-        result: B x target_len torch.Tensor
+        result: B x target_len Tensor
     """
     padded_wavs = [
         torch.cat([wav, torch.zeros(target_len - len(wav))])
@@ -216,7 +167,7 @@ def pad_seq_n_stack(wavs: List[torch.Tensor], target_len: int) -> torch.Tensor:
     return torch.stack(padded_wavs)
 
 
-MixedAudioDataLoaderOutput = Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+MixedAudioDataLoaderOutput = Tuple[Tensor, Tensor, Tensor]
 
 
 def collate_fn(
@@ -228,9 +179,9 @@ def collate_fn(
         batch: list of dataset output
     Returns:
         (
-            batch_padded_mixed_wav: B x T, torch.Tensor
-            prepad_lengths: B, torch.Tensor
-            batch_padded_clean_wav: B x T, torch.Tensor
+            batch_padded_mixed_wav: B x T, Tensor
+            prepad_lengths: B, Tensor
+            batch_padded_clean_wav: B x T, Tensor
         )
     """
     prepad_lengths = torch.tensor(
@@ -251,58 +202,42 @@ class MixedAudioDataLoader(DataLoader):
         super().__init__(collate_fn=partial(collate_fn, alignment), *args, **kwargs)
 
 
-@pytest.fixture
-def test_dataset():
-    return MixedAudioDataset(
-        "./datasets/clean/pi/bootstrap",
-        [
-            "./datasets/dirty/c_chan/stardew_valley",
-            # "./datasets/dirty/c_chan/ratopia",
-        ],
-    )
-
-
-def test_dataset_length(test_dataset):
-    # Check if dataset length is as expected
-    assert len(test_dataset) == 3025
-
-
 def plot_melspectrogram(wav, ax, fs=44100, title="Melspectrogram"):
     s = librosa.feature.melspectrogram(y=wav, sr=44100)
     librosa.display.specshow(
-        librosa.power_to_db(s), x_axis="time", y_axis="mel", ax=ax, sr=fs
+        librosa.power_to_db(s), x_axis="time", y_axis="mel", ax=ax, sr=fs, cmap="magma"
     )
     ax.set(title=title)
 
 
-def test_audio_loading(test_dataset):
-    # Test if audio is loaded and resampled correctly
-    mixed_wav, clean_wav = test_dataset[0]
-    assert mixed_wav is not None
-    assert mixed_wav.shape[0] == 1
-    assert mixed_wav.shape[1] > 0
-    assert isinstance(mixed_wav, torch.Tensor)
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 2))
-    ax = axes[0]
-    plot_melspectrogram(mixed_wav.squeeze().numpy(), ax, title="mixed")
-    ax = axes[1]
-    plot_melspectrogram(clean_wav.squeeze().numpy(), ax, title="clean")
-    plt.show()
+if __name__ == "__main__":
+    test_dataset = MixedAudioDataset(
+        "./datasets/clean/pi/bootstrap",
+        [
+            "./datasets/dirty/c_chan/stardew_valley",
+        ],
+    )
 
-
-def test_loader(test_dataset):
     loader = MixedAudioDataLoader(alignment=8, dataset=test_dataset, batch_size=4)
     for padded_mixed, lengths, padded_clean in loader:
-        fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(10, 8))
+        fig, axes = plt.subplots(nrows=4, ncols=4, figsize=(20, 8))
 
         for i in range(4):
-            # Plot mixed audio
-            ax = axes[i, 0]
-            plot_melspectrogram(padded_mixed[i].numpy(), ax, title="mixed")
+            mixed = padded_mixed[i].numpy()
+            clean = padded_clean[i].numpy()
+            dirty = mixed - clean
 
-            # Plot clean audio
+            ax = axes[i, 0]
+            plot_melspectrogram(mixed, ax, title="mixed")
+
             ax = axes[i, 1]
-            plot_melspectrogram(padded_clean[i].numpy(), ax, title="clean")
+            plot_melspectrogram(clean, ax, title="clean")
+
+            ax = axes[i, 2]
+            plot_melspectrogram(dirty, ax, title="dirty")
+
+            ax = axes[i, 3]
+            ax.plot(mixed)
 
         plt.tight_layout()
         plt.show()

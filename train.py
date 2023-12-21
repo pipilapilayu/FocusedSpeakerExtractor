@@ -1,43 +1,32 @@
 import torch
-import torch.optim as optim
+import torch.utils.data
 from dataclasses import dataclass
-from typing import Literal, List
-import loguru
-import os
-import time
+from typing import List
 from dataset import (
-    AudioDataset,
-    AudioDataLoader,
     MixedAudioDataset,
     MixedAudioDataLoader,
 )
-from DPTNet.others.optimizer_dptnet import TransformerOptimizer
-from DPTNet.models import DPTNet_base
-from DPTNet.solver import Solver
+from lightning import Trainer
+from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
+from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
+from dptnet_modules import DPTNetModule, DPTNetModuleArgs
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 @dataclass
-class MainArgs:
+class TrainArgs:
     clean_dir: str
     dirty_dirs: List[str]
     target_dirs: List[str]
     batch_size: int
     sample_rate: int
-    mode: Literal["train_and_eval", "train", "eval"]
-    n: int = 64  # feature dim in DPT blocks
-    w: int = 2  # filter length in encoder
-    k: int = 250  # chunk size in frames
-    d: int = 6  # number of DPT blocks
-    h: int = 4  # number of hidden units in LSTM after multihead attention
-    e: int = 256  # #channels before bottleneck
+    module_args: DPTNetModuleArgs
+    exp_name: str
     use_cuda: bool = True
     epochs: int = 100
     max_norm: float = 5.0  # clip gradient norm at 5
-    save_folder: str = "exp/temp"
-    continue_from: str = ""
     start_epoch: int = 0
     warmup: bool = True
     model_path: str = "final.pth.tar"
@@ -45,71 +34,55 @@ class MainArgs:
     checkpoint: bool = True
 
 
-def main(args: MainArgs):
-    # setup logging that prints and saves to a file
-    logger = loguru.logger
-    logger.add(
-        os.path.join(
-            args.save_folder,
-            "{}-{}.log".format(args.mode, time.strftime("%Y%m%d-%H%M%S")),
-        )
-    )
-    os.makedirs(args.save_folder, exist_ok=True)
+def train(args: TrainArgs):
+    full_dataset = MixedAudioDataset(args.clean_dir, args.dirty_dirs)
 
-    logger.info(args.save_folder)
-
-    # data
-    tr_dataset = MixedAudioDataset(args.clean_dir, args.dirty_dirs)
-    cv_dataset = AudioDataset(
-        alignment=args.w >> 1, dirty_folders=args.target_dirs, segment_len=None
+    train_size = int(0.8 * len(full_dataset))
+    eval_size = len(full_dataset) - train_size
+    train_dataset, eval_dataset = torch.utils.data.random_split(
+        full_dataset, [train_size, eval_size]
     )
-    tr_loader = MixedAudioDataLoader(
-        alignment=args.w
+    train_loader = MixedAudioDataLoader(
+        alignment=args.module_args.w
         >> 1,  # ensure T devisible by W / 2, checkout DPTNet.models.Encoder for more details
-        dataset=tr_dataset,
+        dataset=train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
     )
-    cv_loader = AudioDataLoader(cv_dataset, batch_size=1)
-    data = {"tr_loader": tr_loader, "cv_loader": cv_loader}
-
-    model = DPTNet_base(
-        enc_dim=args.e,
-        feature_dim=args.n,
-        hidden_dim=args.h,
-        layer=args.d,
-        segment_size=args.k,
-        win_len=args.w,
+    eval_loader = MixedAudioDataLoader(
+        alignment=args.module_args.w
+        >> 1,  # ensure T devisible by W / 2, checkout DPTNet.models.Encoder for more details
+        dataset=eval_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
     )
-    logger.info(model)
-
-    if args.use_cuda:
-        model.cuda()
-        model.to(device)
-
-    optimizier = TransformerOptimizer(
-        optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-9),
-        k=0.2,
-        d_model=args.n,
-        warmup_steps=4000,
-        warmup=bool(args.warmup),
+    model = DPTNetModule(args.module_args)
+    checkpoint_callback = ModelCheckpoint(
+        monitor="val_loss",
+        dirpath="exp/%s/checkpoints/" % args.exp_name,
+        filename="model-{epoch:02d}-{val_loss:.2f}",
+        save_top_k=3,
+        mode="min",
     )
-
-    solver = Solver(data, model, optimizier, args)
-    solver.run()
+    trainer = Trainer(
+        logger=TensorBoardLogger("tb_logs", name=args.exp_name),
+        callbacks=[checkpoint_callback],
+    )
+    trainer.fit(model, train_loader, eval_loader)
 
 
 if __name__ == "__main__":
-    main(
-        MainArgs(
+    train(
+        TrainArgs(
             clean_dir="./datasets/clean/pi/bootstrap/",
             dirty_dirs=["./datasets/dirty/c_chan/stardew_valley/"],
             target_dirs=["./datasets/dirty/pi/stardew_valley/"],
             batch_size=1,
             sample_rate=44100,
-            mode="train_and_eval",
-            save_folder="exp/test",
-            w=16,  # for fast training & prototyping
-            d=2,
+            module_args=DPTNetModuleArgs(
+                w=16,  # for fast training & prototyping
+                d=2,
+            ),
+            exp_name="test_lightning",
         )
     )
