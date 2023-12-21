@@ -111,7 +111,7 @@ $$
 
 The problem could now be converted to selecting some silence segments to split the input audio such that each split is 5-15s away from the last split. We use dynamic programming (or memorized search-order optimized searching) to solve this problem.
 
-Let $\mathrm{dp}[i]$ be the maximum number of clips covered in set $\mathcal{C}_{:i-1} = \{c_{0}, \cdots, c_{i-1}\}$ when $s_i$ is chosen as the split point. The transition equation is:
+Let $\mathrm{dp}[i]$ be the maximum number of clips covered in set $\mathcal{C}_{:i-1} = \{c_{0}, \dots, c_{i-1}\}$ when $s_i$ is chosen as the split point. The transition equation is:
 
 $$
 \mathrm{dp}[i] = \max\left(\max_{l_{s_i} - r_{s_j} \in [\textrm{lower}, \textrm{upper})} (\mathrm{dp}[j] + i - j), \max_{l_{s_i} - r_{s_j} \notin [\textrm{lower}, \textrm{upper})}(\mathrm{dp}[j])\right)

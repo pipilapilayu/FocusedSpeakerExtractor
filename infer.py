@@ -10,6 +10,8 @@ import tqdm
 from dataset import read_wav_44100
 from dptnet_modules import DPTNetModule, DPTNetModuleArgs
 import lightning
+import sys
+import pathlib
 
 Tensor = torch.Tensor
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -46,18 +48,18 @@ class InferenceServer:
 
         def action(wav: Tensor) -> Tensor:
             with torch.no_grad():
-                return self.model(wav)
+                return self.model.model(wav)
 
-        return Solver.process_in_block(14 * 44100, wav, action)
+        return Solver.process_in_block(2048 * 300, wav, action)
 
 
 if __name__ == "__main__":
-    server = InferenceServer(DPTNetModule, "./exp/test/epoch2.pth.tar")
+    server = InferenceServer(DPTNetModule, sys.argv[1])
     for full_filepath in tqdm.tqdm(
-        glob.glob("./datasets/dirty/pi/stardew_valley/*.m4a")
+        glob.glob("./datasets/dirty/pi/stardew_valley/*.wav")
     ):
         filename = os.path.basename(full_filepath)
-        y = read_wav_44100(full_filepath)[..., :5000000]
+        y = read_wav_44100(full_filepath)[..., :5120000]
         y = y.to(device)
 
         res = server.infer(y)
@@ -66,7 +68,9 @@ if __name__ == "__main__":
         #     soundfile.write(f, res.squeeze().cpu().numpy(), samplerate=44100, format="WAV")
 
         res_stereo = torch.cat([y, res], dim=0)
-        with open("./output/epoch_2/stereo_%s.wav" % filename, "wb") as f:
+        out_folder = "./output/%s/" % sys.argv[1].replace("/", "_")
+        pathlib.Path(out_folder).mkdir(parents=True, exist_ok=True)
+        with open(os.path.join(out_folder, "stereo_%s.wav" % filename), "wb") as f:
             soundfile.write(
                 f,
                 res_stereo.cpu().transpose(1, 0).numpy(),

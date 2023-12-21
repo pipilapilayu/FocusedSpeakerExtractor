@@ -110,7 +110,8 @@ class MixedAudioDataset(Dataset):
         dirty_segment = dirty_audio[:, start_point : start_point + len_clean]
 
         max_mul = MixedAudioDataset.get_max_mul(clean_audio, dirty_segment)
-        overlapped_audio = clean_audio + max_mul * dirty_segment
+        dirty_weight = 1 - random.random() ** 2
+        overlapped_audio = clean_audio + dirty_weight * max_mul * dirty_segment
 
         return overlapped_audio
 

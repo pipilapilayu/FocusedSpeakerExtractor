@@ -3,3 +3,4 @@ datasets
 exp
 output
 tb_logs
+.venv

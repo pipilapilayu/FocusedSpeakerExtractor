@@ -30,7 +30,6 @@ class DPTNetModuleArgs:
     d: int = 6  # number of DPT blocks
     h: int = 4  # number of hidden units in LSTM after multihead attention
     e: int = 256  # #channels before bottleneck
-    warmup: bool = True
 
 
 class DPTNetModule(lightning.LightningModule):
@@ -55,13 +54,19 @@ class DPTNetModule(lightning.LightningModule):
         rms_loss = loudness_loss(estimate_source, padded_source)
         loss = si_snr_loss + rms_loss
 
-        return loss
+        return loss.squeeze().mean()
 
     def training_step(self, batch: MixedAudioDataLoaderOutput) -> torch.Tensor:
-        return self._shared_step(batch)
+        loss = self._shared_step(batch)
+        self.log("train_loss", loss)
+
+        return loss
 
     def validation_step(self, batch: MixedAudioDataLoaderOutput) -> torch.Tensor:
-        return self._shared_step(batch)
+        loss = self._shared_step(batch)
+        self.log("val_loss", loss)
+
+        return loss
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.Adam(

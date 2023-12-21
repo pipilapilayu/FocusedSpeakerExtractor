@@ -19,22 +19,38 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 class TrainArgs:
     clean_dir: str
     dirty_dirs: List[str]
-    target_dirs: List[str]
     batch_size: int
-    sample_rate: int
     module_args: DPTNetModuleArgs
     exp_name: str
-    use_cuda: bool = True
-    epochs: int = 100
-    max_norm: float = 5.0  # clip gradient norm at 5
-    start_epoch: int = 0
-    warmup: bool = True
-    model_path: str = "final.pth.tar"
-    print_freq: int = 10
-    checkpoint: bool = True
+    epochs: int = 10
 
 
 def train(args: TrainArgs):
+    dataset = MixedAudioDataset(args.clean_dir, args.dirty_dirs)
+
+    loader = MixedAudioDataLoader(
+        alignment=args.module_args.w
+        >> 1,  # ensure T devisible by W / 2, checkout DPTNet.models.Encoder for more details
+        dataset=dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+    )
+
+    model = DPTNetModule(args.module_args)
+    checkpoint_callback = ModelCheckpoint(
+        every_n_epochs=1,
+        dirpath="exp/%s/checkpoints/" % args.exp_name,
+        filename="model-{epoch:02d}",
+    )
+    trainer = Trainer(
+        logger=TensorBoardLogger("tb_logs", name=args.exp_name),
+        callbacks=[checkpoint_callback],
+        max_epochs=args.epochs,
+    )
+    trainer.fit(model, loader)
+
+
+def train_and_eval(args: TrainArgs):
     full_dataset = MixedAudioDataset(args.clean_dir, args.dirty_dirs)
 
     train_size = int(0.8 * len(full_dataset))
@@ -54,7 +70,7 @@ def train(args: TrainArgs):
         >> 1,  # ensure T devisible by W / 2, checkout DPTNet.models.Encoder for more details
         dataset=eval_dataset,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=False,
     )
     model = DPTNetModule(args.module_args)
     checkpoint_callback = ModelCheckpoint(
@@ -67,6 +83,7 @@ def train(args: TrainArgs):
     trainer = Trainer(
         logger=TensorBoardLogger("tb_logs", name=args.exp_name),
         callbacks=[checkpoint_callback],
+        max_epochs=args.epochs,
     )
     trainer.fit(model, train_loader, eval_loader)
 
@@ -76,13 +93,11 @@ if __name__ == "__main__":
         TrainArgs(
             clean_dir="./datasets/clean/pi/bootstrap/",
             dirty_dirs=["./datasets/dirty/c_chan/stardew_valley/"],
-            target_dirs=["./datasets/dirty/pi/stardew_valley/"],
             batch_size=1,
-            sample_rate=44100,
             module_args=DPTNetModuleArgs(
-                w=16,  # for fast training & prototyping
+                w=16,
                 d=2,
             ),
-            exp_name="test_lightning",
+            exp_name="test_b1_w16_d2_train",
         )
     )
