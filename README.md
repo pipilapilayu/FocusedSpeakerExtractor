@@ -86,7 +86,8 @@ We use `DPTNet` as the speech extractor for now.
 - [ ] Substitute transformer block with [RWKV](https://github.com/BlinkDL/RWKV-LM.git)
 - [ ] Try frequency-domain solutions (e.g. diffusion-based approach)
 - [ ] Separate model-specific args from training args and infer args
-- [ ] Look into [Noise2Noise](https://arxiv.org/abs/2104.03838)
+- [x] Look into [Noise2Noise](https://arxiv.org/abs/2104.03838)
+    - [ ] Implement n2n training scheme
 - And most importantly, read more papers...
 
 ## References & Acknowdgements

@@ -5,6 +5,7 @@ from typing import List
 from dataset import (
     MixedAudioDataset,
     MixedAudioDataLoader,
+    N2NMixedAudioDataset,
 )
 from lightning import Trainer
 from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
@@ -26,7 +27,7 @@ class TrainArgs:
 
 
 def train(args: TrainArgs):
-    dataset = MixedAudioDataset(args.clean_dir, args.dirty_dirs)
+    dataset = N2NMixedAudioDataset(MixedAudioDataset(args.clean_dir, args.dirty_dirs))
 
     loader = MixedAudioDataLoader(
         alignment=args.module_args.w
@@ -98,6 +99,6 @@ if __name__ == "__main__":
                 w=16,
                 d=2,
             ),
-            exp_name="test_b1_w16_d2_train",
+            exp_name="test_b1_w16_d2_train_n2n",
         )
     )

@@ -142,15 +142,40 @@ class MixedAudioDataset(Dataset):
         clean_wav = self.cached_loader[clean_file]
 
         clean_wav_len = clean_wav.shape[-1]
-        offset = random.randint(-(clean_wav_len >> 1), clean_wav_len >> 1)
-        offset_clean_wav = self.apply_offset(clean_wav, offset)
 
         dirty_file = random.choice(self.dirty_files)
         dirty_wav = self.cached_loader[dirty_file]
 
-        mixed_wav = self.overlap_dirty_segment(offset_clean_wav, dirty_wav)
+        mixed_wav = self.overlap_dirty_segment(clean_wav, dirty_wav)
 
-        return mixed_wav, offset_clean_wav
+        return mixed_wav, clean_wav
+
+
+class N2NMixedAudioDataset(Dataset):
+    """
+    Returns two corrupted (mixed) wav to support noise2noise style training.
+    """
+
+    def __init__(self, dataset: MixedAudioDataset):
+        self.dataset = dataset
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx: int) -> MixedAudioDatasetOutput:
+        """
+        Args:
+            idx: int, some random index ranging in [0..len(self))
+        Returns:
+            (
+                corrupted_x: 1 x T, Tensor. T is number of samples.
+                corrupted_y: 1 x T, Tensor
+            )
+        """
+        corrupted_x, _ = self.dataset[idx]
+        corrupted_y, _ = self.dataset[idx]
+
+        return corrupted_x, corrupted_y
 
 
 def pad_seq_n_stack(wavs: List[Tensor], target_len: int) -> Tensor:
@@ -220,25 +245,45 @@ if __name__ == "__main__":
     )
 
     loader = MixedAudioDataLoader(alignment=8, dataset=test_dataset, batch_size=4)
-    for padded_mixed, lengths, padded_clean in loader:
+    for padded_x_hat, lengths, padded_y_hat in loader:
         fig, axes = plt.subplots(nrows=4, ncols=4, figsize=(20, 8))
 
         for i in range(4):
-            mixed = padded_mixed[i].numpy()
-            clean = padded_clean[i].numpy()
-            dirty = mixed - clean
+            x_hat = padded_x_hat[i].numpy()
+            y_hat = padded_y_hat[i].numpy()
+            dirty = x_hat - y_hat
 
             ax = axes[i, 0]
-            plot_melspectrogram(mixed, ax, title="mixed")
+            plot_melspectrogram(x_hat, ax, title="mixed")
 
             ax = axes[i, 1]
-            plot_melspectrogram(clean, ax, title="clean")
+            plot_melspectrogram(y_hat, ax, title="clean")
 
             ax = axes[i, 2]
             plot_melspectrogram(dirty, ax, title="dirty")
 
             ax = axes[i, 3]
-            ax.plot(mixed)
+            ax.plot(x_hat)
+
+        plt.tight_layout()
+        plt.show()
+
+        break
+
+    n2n_dataset = N2NMixedAudioDataset(test_dataset)
+    n2n_loader = MixedAudioDataLoader(alignment=8, dataset=n2n_dataset, batch_size=4)
+    for padded_x_hat, lengths, padded_y_hat in n2n_loader:
+        fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(10, 8))
+
+        for i in range(4):
+            x_hat = padded_x_hat[i].numpy()
+            y_hat = padded_y_hat[i].numpy()
+
+            ax = axes[i, 0]
+            plot_melspectrogram(x_hat, ax, title=r"$\hat{x_i}$")
+
+            ax = axes[i, 1]
+            plot_melspectrogram(y_hat, ax, title=r"$\hat{y_i}$")
 
         plt.tight_layout()
         plt.show()
