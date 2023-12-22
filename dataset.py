@@ -3,8 +3,8 @@ import os
 import random
 import torchaudio
 import torch
-from torch.utils.data import Dataset, DataLoader
-from typing import Dict, List, Tuple
+from torch.utils.data import Dataset, DataLoader, Subset
+from typing import Dict, List, Tuple, Any
 from glob import glob
 import librosa
 import librosa.display
@@ -156,7 +156,7 @@ class N2NMixedAudioDataset(Dataset):
     Returns two corrupted (mixed) wav to support noise2noise style training.
     """
 
-    def __init__(self, dataset: MixedAudioDataset):
+    def __init__(self, dataset: MixedAudioDataset | Subset[MixedAudioDatasetOutput]):
         self.dataset = dataset
 
     def __len__(self):
@@ -193,7 +193,7 @@ def pad_seq_n_stack(wavs: List[Tensor], target_len: int) -> Tensor:
     return torch.stack(padded_wavs)
 
 
-MixedAudioDataLoaderOutput = Tuple[Tensor, Tensor, Tensor]
+MixedAudioDataLoaderOutput = Tuple[Tensor, Tensor]
 
 
 def collate_fn(
@@ -206,21 +206,17 @@ def collate_fn(
     Returns:
         (
             batch_padded_mixed_wav: B x T, Tensor
-            prepad_lengths: B, Tensor
             batch_padded_clean_wav: B x T, Tensor
         )
     """
-    prepad_lengths = torch.tensor(
-        [mixed.shape[-1] for mixed, _ in batch], dtype=torch.long
-    )
-    pad_length = int(prepad_lengths.max().item())
+    pad_length = max(mixed.shape[-1] for mixed, _ in batch)
     pad_length += (alignment - pad_length % alignment) % alignment
 
     mixed_wavs, clean_wavs = zip(*batch)
     batch_padded_mixed_wav = pad_seq_n_stack(list(mixed_wavs), pad_length)
     batch_padded_clean_wav = pad_seq_n_stack(list(clean_wavs), pad_length)
 
-    return (batch_padded_mixed_wav, prepad_lengths, batch_padded_clean_wav)
+    return (batch_padded_mixed_wav, batch_padded_clean_wav)
 
 
 class MixedAudioDataLoader(DataLoader):

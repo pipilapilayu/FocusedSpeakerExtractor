@@ -31,11 +31,14 @@ class InferArgs:
     checkpoint: bool = True
 
 
-class InferenceServer:
-    T = TypeVar("T", bound=lightning.LightningModule)
+LightningModuleType = TypeVar("LightningModuleType", bound=lightning.LightningModule)
 
+
+class InferenceServer:
     # we need something to store the state
-    def __init__(self, module_class: Type[T], model_path: str) -> None:
+    def __init__(
+        self, module_class: Type[LightningModuleType], model_path: str
+    ) -> None:
         self.model = module_class.load_from_checkpoint(model_path)
         self.model.eval()
 
@@ -61,7 +64,7 @@ class InferenceServer:
 
         def action(wav: Tensor) -> Tensor:
             with torch.no_grad():
-                return self.model.model(wav)
+                return self.model(wav)
 
         return self.process_in_block(2048 * 300, wav, action)
 

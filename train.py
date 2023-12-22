@@ -10,7 +10,7 @@ from dataset import (
 from lightning import Trainer
 from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
 from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
-from dptnet_modules import DPTNetModule, DPTNetModuleArgs
+from dptnet_modules import DPTNetModuleArgs, N2NDPTNetModule
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -37,7 +37,7 @@ def train(args: TrainArgs):
         shuffle=True,
     )
 
-    model = DPTNetModule(args.module_args)
+    model = N2NDPTNetModule(args.module_args)
     checkpoint_callback = ModelCheckpoint(
         every_n_epochs=1,
         dirpath="exp/%s/checkpoints/" % args.exp_name,
@@ -59,10 +59,11 @@ def train_and_eval(args: TrainArgs):
     train_dataset, eval_dataset = torch.utils.data.random_split(
         full_dataset, [train_size, eval_size]
     )
+    n2n_train_dataset = N2NMixedAudioDataset(train_dataset)
     train_loader = MixedAudioDataLoader(
         alignment=args.module_args.w
         >> 1,  # ensure T devisible by W / 2, checkout DPTNet.models.Encoder for more details
-        dataset=train_dataset,
+        dataset=n2n_train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
     )
@@ -73,7 +74,7 @@ def train_and_eval(args: TrainArgs):
         batch_size=args.batch_size,
         shuffle=False,
     )
-    model = DPTNetModule(args.module_args)
+    model = N2NDPTNetModule(args.module_args)
     checkpoint_callback = ModelCheckpoint(
         monitor="val_loss",
         dirpath="exp/%s/checkpoints/" % args.exp_name,
@@ -90,15 +91,15 @@ def train_and_eval(args: TrainArgs):
 
 
 if __name__ == "__main__":
-    train(
+    train_and_eval(
         TrainArgs(
             clean_dir="./datasets/clean/pi/bootstrap/",
             dirty_dirs=["./datasets/dirty/c_chan/stardew_valley/"],
-            batch_size=1,
+            batch_size=2,
             module_args=DPTNetModuleArgs(
                 w=16,
                 d=2,
             ),
-            exp_name="test_b1_w16_d2_train_n2n",
+            exp_name="test_b2_w16_d2_train_eval_n2n",
         )
     )
