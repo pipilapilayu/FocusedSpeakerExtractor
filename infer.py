@@ -1,6 +1,5 @@
 from dataclasses import dataclass
-from typing import Type, TypeVar
-from DPTNet.solver import Solver
+from typing import Type, TypeVar, Callable
 import torch
 from DPTNet.models import DPTNet_base
 import soundfile
@@ -40,6 +39,20 @@ class InferenceServer:
         self.model = module_class.load_from_checkpoint(model_path)
         self.model.eval()
 
+    @staticmethod
+    def process_in_block(
+        block_size: int,
+        wav: torch.Tensor,
+        action: Callable[[torch.Tensor], torch.Tensor],
+    ) -> torch.Tensor:
+        wav_len = wav.shape[-1]
+        res = torch.zeros_like(wav)
+        for i in tqdm.tqdm(range(0, wav_len, block_size)):
+            source = wav[..., i : i + block_size]
+            estimated_source = action(source)
+            res[..., i : i + block_size] += estimated_source
+        return res
+
     def infer(self, wav: Tensor) -> Tensor:
         """
         Args:
@@ -50,7 +63,7 @@ class InferenceServer:
             with torch.no_grad():
                 return self.model.model(wav)
 
-        return Solver.process_in_block(2048 * 300, wav, action)
+        return self.process_in_block(2048 * 300, wav, action)
 
 
 if __name__ == "__main__":
