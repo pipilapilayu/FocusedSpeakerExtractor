@@ -49,10 +49,14 @@ python train.py
 
 Unfortunately we still doesn't support command line as we are still prototyping things. You must edit the `TrainArgs` object passed into the `train` function in `train.py`.
 
+We implemented both `Noise2Clean` and `Noise2Noise` training, see `dptnet_modules.N2NDPTNetModule` for implementation details.
+
 ### Inference
 
+Please add checkpoint path after filename, like this:
+
 ```bash
-python infer.py
+python infer.py ./exp/test_b1_w16_d2_train/checkpoints/model-epoch=09.ckpt
 ```
 
 If you want to infer a file, you need to manually edit the `infer.py` and remove the `glob.glob()` and manually specify the path to the file. You will also need to specify the checkpoint from training phase when initializing `InferArgs`.
@@ -66,7 +70,7 @@ Here's what happened inside of `MixedAudioDataset`:
 - Load a clean wav $c$, then apply offset to shift it left or right, while keeping it's shape by zero padding on the left or right side.
 - Randomly pick a segment with the same length as the clean wav, from random file in all provided dirty folders. We denote it as $d$.
 - Calculate max $w$ such that $\forall i \in [0, \lvert c \rvert), c_i + w d_i \in [-1, 1]$.
-- Return $c + w_{\max} d$.
+- Return $c + v w_{\max} d$, where $v = 1 - r^2$, and $r \in \mathcal{U}_{[0, 1]}$.
 
 Here's what `MixedAudioDataset` produced:
 
@@ -82,13 +86,19 @@ We use `DPTNet` as the speech extractor for now.
 
 ## Todo
 
-- [ ] Apply [sigma-reparam](https://github.com/apple/ml-sigma-reparam.git) to the transformers
-- [ ] Substitute transformer block with [RWKV](https://github.com/BlinkDL/RWKV-LM.git)
+<details>
+
 - [ ] Try frequency-domain solutions (e.g. diffusion-based approach)
 - [ ] Separate model-specific args from training args and infer args
 - [x] Look into [Noise2Noise](https://arxiv.org/abs/2104.03838)
-    - [ ] Implement n2n training scheme
+    - [x] Implement n2n training scheme
+- [ ] Look into more noise2clean models & research papers
+- Low-priorities
+    - [ ] Apply [sigma-reparam](https://github.com/apple/ml-sigma-reparam.git) to the transformers
+    - [ ] Substitute transformer block with [RWKV](https://github.com/BlinkDL/RWKV-LM.git)
 - And most importantly, read more papers...
+
+</details>
 
 ## References & Acknowdgements
 
