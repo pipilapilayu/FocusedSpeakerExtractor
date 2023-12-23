@@ -4,3 +4,4 @@ exp
 output
 tb_logs
 .venv
+lightning_logs

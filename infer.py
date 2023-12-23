@@ -7,7 +7,8 @@ import os
 import glob
 import tqdm
 from dataset import read_wav_44100
-from dptnet_modules import DPTNetModule, DPTNetModuleArgs
+from dptnet_modules import N2NDPTNetModule, DPTNetModuleArgs
+from torch.utils.data import TensorDataset
 import lightning
 import sys
 import pathlib
@@ -42,41 +43,23 @@ class InferenceServer:
         self.model = module_class.load_from_checkpoint(model_path)
         self.model.eval()
 
-    @staticmethod
-    def process_in_block(
-        block_size: int,
-        wav: torch.Tensor,
-        action: Callable[[torch.Tensor], torch.Tensor],
-    ) -> torch.Tensor:
-        wav_len = wav.shape[-1]
-        res = torch.zeros_like(wav)
-        for i in tqdm.tqdm(range(0, wav_len, block_size)):
-            source = wav[..., i : i + block_size]
-            estimated_source = action(source)
-            res[..., i : i + block_size] += estimated_source
-        return res
-
     def infer(self, wav: Tensor) -> Tensor:
         """
         Args:
-            wav: [T] Tensor (not [1 T])
+            wav: 1 x T
         """
 
-        def action(wav: Tensor) -> Tensor:
-            with torch.no_grad():
-                return self.model(wav)
-
-        return self.process_in_block(2048 * 300, wav, action)
+        result = self.model.predict_step(wav)
+        return result
 
 
 if __name__ == "__main__":
-    server = InferenceServer(DPTNetModule, sys.argv[1])
+    server = InferenceServer(N2NDPTNetModule, sys.argv[1])
     for full_filepath in tqdm.tqdm(
         glob.glob("./datasets/dirty/pi/stardew_valley/*.wav")
     ):
         filename = os.path.basename(full_filepath)
-        y = read_wav_44100(full_filepath)[..., :5120000]
-        y = y.to(device)
+        y = read_wav_44100(full_filepath)[..., :5120000].to(device)
 
         res = server.infer(y)
 
@@ -89,7 +72,7 @@ if __name__ == "__main__":
         with open(os.path.join(out_folder, "stereo_%s.wav" % filename), "wb") as f:
             soundfile.write(
                 f,
-                res_stereo.cpu().transpose(1, 0).numpy(),
+                res_stereo.transpose(1, 0).cpu().numpy(),
                 samplerate=44100,
                 format="WAV",
             )

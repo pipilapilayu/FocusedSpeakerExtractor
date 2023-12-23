@@ -3,9 +3,10 @@ import lightning
 from DPTNet.models import DPTNet_base
 import torch
 from dataset import MixedAudioDataLoaderOutput
-from typing import Dict, Any
+from typing import Dict, Any, Callable
 from torch.optim.lr_scheduler import ExponentialLR
 from torchmetrics.audio.snr import ScaleInvariantSignalNoiseRatio
+import tqdm
 
 
 def rms_loudness(signal: torch.Tensor) -> torch.Tensor:
@@ -20,6 +21,20 @@ def loudness_loss(
     return (
         torch.abs(estimated_loudness - target_loudness) * 128
     )  # 100 is loudness_loss weight
+
+
+def process_in_block(
+    block_size: int,
+    wav: torch.Tensor,
+    action: Callable[[torch.Tensor], torch.Tensor],
+) -> torch.Tensor:
+    wav_len = wav.shape[-1]
+    res = torch.zeros_like(wav)
+    for i in tqdm.tqdm(range(0, wav_len, block_size)):
+        source = wav[..., i : i + block_size]
+        estimated_source = action(source)
+        res[..., i : i + block_size] += estimated_source
+    return res
 
 
 @dataclass
@@ -71,9 +86,14 @@ class N2NDPTNetModule(lightning.LightningModule):
     def predict_step(self, batch: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            batch: B x T
+            batch: T
         """
-        return self.model(batch)
+
+        def action(wav: torch.Tensor) -> torch.Tensor:
+            with torch.no_grad():
+                return self.model(wav)
+
+        return process_in_block(2048 * 300, batch, action)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.Adam(
