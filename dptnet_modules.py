@@ -7,6 +7,7 @@ from typing import Dict, Any, Callable
 from torch.optim.lr_scheduler import ExponentialLR
 from torchmetrics.audio.snr import ScaleInvariantSignalNoiseRatio
 import tqdm
+from settings import FS
 
 
 def rms_loudness(signal: torch.Tensor) -> torch.Tensor:
@@ -40,11 +41,16 @@ def process_in_block(
 @dataclass
 class DPTNetModuleArgs:
     n: int = 64  # feature dim in DPT blocks
-    w: int = 2  # filter length in encoder
+    w_ms: int = 2  # filter length in encoder in ms
     k: int = 250  # chunk size in frames
     d: int = 6  # number of DPT blocks
     h: int = 4  # number of hidden units in LSTM after multihead attention
     e: int = 256  # #channels before bottleneck
+    fs: int = FS
+
+    @property
+    def w(self):
+        return self.w_ms * self.fs // 1000
 
 
 class N2NDPTNetModule(lightning.LightningModule):

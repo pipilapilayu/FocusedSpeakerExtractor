@@ -9,17 +9,20 @@ from glob import glob
 import librosa
 import librosa.display
 import matplotlib.pyplot as plt
+from settings import FS
 
 
 Tensor = torch.Tensor
 
 
-def read_wav_44100(filename: str) -> Tensor:
+def read_wav_at_FS(filename: str) -> Tensor:
     y, fs = torchaudio.load(filename)
+    # if y.shape[0] != 2:
+    #     y = y.repeat(2, 1)
     if y.shape[0] > 1:
-        y = torch.mean(y, dim=0, keepdim=True)
-    if fs != 44100:
-        y = torchaudio.functional.resample(y, fs, 44100)
+        y = y.mean(dim=0, keepdim=True)
+    if fs != FS:
+        y = torchaudio.functional.resample(y, fs, FS)
     return y
 
 
@@ -29,7 +32,7 @@ class CachedLoader:
 
     def __getitem__(self, key: str) -> Tensor:
         if key not in self.map:
-            self.map[key] = read_wav_44100(key)
+            self.map[key] = read_wav_at_FS(key)
 
         return self.map[key]
 
@@ -225,7 +228,7 @@ class MixedAudioDataLoader(DataLoader):
 
 
 def plot_melspectrogram(wav, ax, fs=44100, title="Melspectrogram"):
-    s = librosa.feature.melspectrogram(y=wav, sr=44100)
+    s = librosa.feature.melspectrogram(y=wav, sr=fs)
     librosa.display.specshow(
         librosa.power_to_db(s), x_axis="time", y_axis="mel", ax=ax, sr=fs, cmap="magma"
     )
@@ -250,13 +253,13 @@ if __name__ == "__main__":
             dirty = x_hat - y_hat
 
             ax = axes[i, 0]
-            plot_melspectrogram(x_hat, ax, title="mixed")
+            plot_melspectrogram(x_hat, ax, fs=FS, title="mixed")
 
             ax = axes[i, 1]
-            plot_melspectrogram(y_hat, ax, title="clean")
+            plot_melspectrogram(y_hat, ax, fs=FS, title="clean")
 
             ax = axes[i, 2]
-            plot_melspectrogram(dirty, ax, title="dirty")
+            plot_melspectrogram(dirty, ax, fs=FS, title="dirty")
 
             ax = axes[i, 3]
             ax.plot(x_hat)
@@ -276,10 +279,10 @@ if __name__ == "__main__":
             y_hat = padded_y_hat[i].numpy()
 
             ax = axes[i, 0]
-            plot_melspectrogram(x_hat, ax, title=r"$\hat{x_i}$")
+            plot_melspectrogram(x_hat, ax, fs=FS, title=r"$\hat{x_i}$")
 
             ax = axes[i, 1]
-            plot_melspectrogram(y_hat, ax, title=r"$\hat{y_i}$")
+            plot_melspectrogram(y_hat, ax, fs=FS, title=r"$\hat{y_i}$")
 
         plt.tight_layout()
         plt.show()

@@ -6,30 +6,17 @@ import soundfile
 import os
 import glob
 import tqdm
-from dataset import read_wav_44100
+from dataset import read_wav_at_FS
 from dptnet_modules import N2NDPTNetModule, DPTNetModuleArgs
 from torch.utils.data import TensorDataset
 import lightning
 import sys
 import pathlib
 
+from settings import FS
+
 Tensor = torch.Tensor
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-@dataclass
-class InferArgs:
-    sample_rate: int
-    module_args: DPTNetModuleArgs
-    exp_name: str
-    use_cuda: bool = True
-    epochs: int = 100
-    max_norm: float = 5.0  # clip gradient norm at 5
-    start_epoch: int = 0
-    warmup: bool = True
-    model_path: str = "final.pth.tar"
-    print_freq: int = 10
-    checkpoint: bool = True
 
 
 LightningModuleType = TypeVar("LightningModuleType", bound=lightning.LightningModule)
@@ -59,7 +46,7 @@ if __name__ == "__main__":
         glob.glob("./datasets/dirty/pi/stardew_valley/*.wav")
     ):
         filename = os.path.basename(full_filepath)
-        y = read_wav_44100(full_filepath)[..., :5120000].to(device)
+        y = read_wav_at_FS(full_filepath)[..., :5120000].to(device)
 
         res = server.infer(y)
 
@@ -73,6 +60,6 @@ if __name__ == "__main__":
             soundfile.write(
                 f,
                 res_stereo.transpose(1, 0).cpu().numpy(),
-                samplerate=44100,
+                samplerate=FS,
                 format="WAV",
             )

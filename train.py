@@ -97,9 +97,8 @@ if __name__ == "__main__":
             dirty_dirs=["./datasets/dirty/c_chan/stardew_valley/"],
             batch_size=2,
             module_args=DPTNetModuleArgs(
-                w=16,
                 d=2,
             ),
-            exp_name="test_b2_w16_d2_train_eval_n2n",
+            exp_name="test_b2_d2_train_eval_n2n",
         )
     )

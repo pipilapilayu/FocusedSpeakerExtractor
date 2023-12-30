@@ -93,6 +93,9 @@ We use `DPTNet` as the speech extractor for now.
 - [x] Look into [Noise2Noise](https://arxiv.org/abs/2104.03838)
     - [x] Implement n2n training scheme
 - [ ] Look into more noise2clean models & research papers
+- Models to look into
+    - [ ] Conv-TasNet
+    - [ ] Diffusion-based speech enhancement
 - Low-priorities
     - [ ] Apply [sigma-reparam](https://github.com/apple/ml-sigma-reparam.git) to the transformers
     - [ ] Substitute transformer block with [RWKV](https://github.com/BlinkDL/RWKV-LM.git)
