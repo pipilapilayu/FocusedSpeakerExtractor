@@ -17,10 +17,8 @@ Tensor = torch.Tensor
 
 def read_wav_at_FS(filename: str) -> Tensor:
     y, fs = torchaudio.load(filename)
-    # if y.shape[0] != 2:
-    #     y = y.repeat(2, 1)
-    if y.shape[0] > 1:
-        y = y.mean(dim=0, keepdim=True)
+    if y.shape[0] != 2:
+        y = y.repeat(2, 1)
     if fs != FS:
         y = torchaudio.functional.resample(y, fs, FS)
     return y
@@ -181,18 +179,29 @@ class N2NMixedAudioDataset(Dataset):
         return corrupted_x, corrupted_y
 
 
+def pad_wav(wav: Tensor, target_len: int) -> Tensor:
+    """
+    Args:
+        wav: 2 x T Tensor
+        target_len: int
+    Returns:
+        result: 2 x target_len Tensor
+    """
+    *dims, t = wav.shape
+    padded_wav = torch.zeros((*dims, target_len))
+    padded_wav[..., :t] = wav
+    return padded_wav
+
+
 def pad_seq_n_stack(wavs: List[Tensor], target_len: int) -> Tensor:
     """
     Args:
-        wavs: list of 1 x T Tensor, T may vary.
-        target_len: assert to be max T in that varying 1 x T tensor list.
+        wavs: list of 2 x T Tensor, T may vary.
+        target_len: assert to be max T in that varying 2 x T tensor list.
     Returns:
-        result: B x target_len Tensor
+        result: B x 2 x target_len Tensor
     """
-    padded_wavs = [
-        torch.cat([wav, torch.zeros(target_len - len(wav))])
-        for wav in map(lambda x: x[0], wavs)
-    ]
+    padded_wavs = [pad_wav(wav, target_len) for wav in wavs]
     return torch.stack(padded_wavs)
 
 

@@ -88,6 +88,7 @@ We use `DPTNet` as the speech extractor for now.
 
 <details>
 
+- [ ] ADD `torchtyping` for better code readability
 - [ ] Try frequency-domain solutions (e.g. diffusion-based approach)
 - [ ] Separate model-specific args from training args and infer args
 - [x] Look into [Noise2Noise](https://arxiv.org/abs/2104.03838)
