@@ -99,7 +99,7 @@ class N2NDPTNetModule(lightning.LightningModule):
             with torch.no_grad():
                 return self.model(wav)
 
-        return process_in_block(2048 * 300, batch, action)
+        return process_in_block(96 * 300, batch, action)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.Adam(

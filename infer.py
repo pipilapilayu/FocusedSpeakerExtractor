@@ -46,20 +46,27 @@ if __name__ == "__main__":
         glob.glob("./datasets/dirty/pi/stardew_valley/*.wav")
     ):
         filename = os.path.basename(full_filepath)
-        y = read_wav_at_FS(full_filepath)[..., :5120000].to(device)
+        y = read_wav_at_FS(full_filepath)[..., :9600000].to(device).unsqueeze(dim=0)
 
         res = server.infer(y)
 
-        # with open("./output/epoch_2/%s.wav" % filename, "wb") as f:
-        #     soundfile.write(f, res.squeeze().cpu().numpy(), samplerate=44100, format="WAV")
-
-        res_stereo = torch.cat([y, res], dim=0)
         out_folder = "./output/%s/" % sys.argv[1].replace("/", "_")
         pathlib.Path(out_folder).mkdir(parents=True, exist_ok=True)
-        with open(os.path.join(out_folder, "stereo_%s.wav" % filename), "wb") as f:
+        with open(os.path.join(out_folder, "%s.wav" % filename), "wb") as f:
             soundfile.write(
                 f,
-                res_stereo.transpose(1, 0).cpu().numpy(),
+                res.squeeze().transpose(1, 0).cpu().numpy(),
                 samplerate=FS,
                 format="WAV",
             )
+
+        # res_stereo = torch.cat([y, res], dim=0)
+        # out_folder = "./output/%s/" % sys.argv[1].replace("/", "_")
+        # pathlib.Path(out_folder).mkdir(parents=True, exist_ok=True)
+        # with open(os.path.join(out_folder, "stereo_%s.wav" % filename), "wb") as f:
+        #     soundfile.write(
+        #         f,
+        #         res_stereo.transpose(1, 0).cpu().numpy(),
+        #         samplerate=FS,
+        #         format="WAV",
+        #     )
