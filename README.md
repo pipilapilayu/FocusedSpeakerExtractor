@@ -1,10 +1,15 @@
-# Focused Speaker Extractor
+# Target Speaker Speech Enhancement
 
-A model that derives from TSE (Target Speaker Extraction) models, designed to **extract ONLY ONE speaker's speech from all kinds of noises**, including other people's voice, game SFX, noise, etc.
+This is a model aiming to **extract ONLY ONE speaker's speech from all kinds of noises**, including other people's voice, game SFX, noise, etc.
 
-Serve as infrastructural model for downstream tasks, such as ASR, SVC, SVS, TTS, etc.
+Designed to serve as infrastructural model for downstream tasks, such as ASR, SVC, SVS, TTS, etc.
 
-Unlike most TSE studies that runs at 8kHz, the model runs at 44.1kHz to ensure the output could be further utilized.
+## Goals
+
+- Works with limited clean speech data
+- Removes overlapping speech from other speakers
+- Consistent to different recording devices
+- Low computational cost
 
 ## How to use
 

@@ -4,7 +4,7 @@ import random
 import torchaudio
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Union
 from glob import glob
 import librosa
 import librosa.display
@@ -159,7 +159,9 @@ class N2NMixedAudioDataset(Dataset):
     Returns two corrupted (mixed) wav to support noise2noise style training.
     """
 
-    def __init__(self, dataset: MixedAudioDataset | Subset[MixedAudioDatasetOutput]):
+    def __init__(
+        self, dataset: Union[MixedAudioDataset, Subset[MixedAudioDatasetOutput]]
+    ):
         self.dataset = dataset
 
     def __len__(self):
