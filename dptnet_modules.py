@@ -7,7 +7,7 @@ from typing import Dict, Any, Callable
 from torch.optim.lr_scheduler import ExponentialLR
 from torchmetrics.audio.snr import ScaleInvariantSignalNoiseRatio
 import tqdm
-from settings import FS
+from settings import FS, infer_block_size
 
 
 def rms_loudness(signal: torch.Tensor) -> torch.Tensor:
@@ -50,7 +50,7 @@ class DPTNetModuleArgs:
 
     @property
     def w(self):
-        return self.w_ms * self.fs // 1000
+        return int(self.w_ms * self.fs // 1000)
 
 
 class N2NDPTNetModule(lightning.LightningModule):
@@ -99,7 +99,7 @@ class N2NDPTNetModule(lightning.LightningModule):
             with torch.no_grad():
                 return self.model(wav)
 
-        return process_in_block(2048 * 300, batch, action)
+        return process_in_block(infer_block_size, batch, action)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         optimizer = torch.optim.Adam(
