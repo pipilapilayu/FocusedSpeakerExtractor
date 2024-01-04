@@ -85,7 +85,7 @@ class N2NDPTNetModule(lightning.LightningModule):
     def validation_step(self, batch: MixedAudioDataLoaderOutput) -> torch.Tensor:
         # we validate using SI-SNR against clean speech, make sure use `MixedAudioDataset` not `N2NMixedAudioDataset`
         mixed, clean = batch
-        val_loss = 0 - self.eval_loss(mixed, clean).squeeze().mean()
+        val_loss = 0 - self.eval_loss(self.model(mixed), clean).squeeze().mean()
         self.log("val_loss", val_loss)
         return val_loss
 

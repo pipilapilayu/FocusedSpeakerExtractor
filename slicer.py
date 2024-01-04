@@ -285,28 +285,33 @@ def split_single_file_with_caption(
 
     inference_pipeline = pipeline(
         task=Tasks.auto_speech_recognition,
-        model="damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+        model="damo/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
     )
 
     with open(
         os.path.join(output_folder, "%s.list" % generate_caption_for),
-        "w",
+        "a",
         encoding="utf-8",
     ) as f:
         for i, (y_n, l, r) in enumerate(split_file(y, fs, merge_by_dp, low_cut_freq)):
             out_filename = "%s_%d.wav" % (filename, i)
             with open(os.path.join(output_folder, out_filename), "wb") as g:
-                soundfile.write(g, y_n, fs, format="WAV")
-                f.write(
-                    "|".join(
-                        [
-                            os.path.join(os.path.abspath(output_folder), out_filename),
-                            generate_caption_for,
-                            "ZH",
-                            inference_pipeline(audio_in=y_n, audio_fs=fs)["text"],
-                        ]
+                infer_res = inference_pipeline(audio_in=y_n, audio_fs=fs)
+                if "text" in infer_res:
+                    f.write(
+                        "|".join(
+                            [
+                                os.path.join(
+                                    os.path.abspath(output_folder), out_filename
+                                ),
+                                generate_caption_for,
+                                "ZH",
+                                infer_res["text"],
+                            ]
+                        )
+                        + "\n"
                     )
-                )
+                    soundfile.write(g, y_n, fs, format="WAV")
 
 
 def split_single_file(
