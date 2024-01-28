@@ -1,5 +1,8 @@
 # Target Speaker Speech Enhancement
 
+> [!CAUTION]
+> This project is not ready for production use. Please consult other solutions.
+
 This is a model aiming to **extract ONLY ONE speaker's speech from all kinds of noises**, including other people's voice, game SFX, noise, etc.
 
 Designed to serve as infrastructural model for downstream tasks, such as ASR, SVC, SVS, TTS, etc.
@@ -98,6 +101,7 @@ We use `DPTNet` as the speech extractor for now.
 - [x] Look into [Noise2Noise](https://arxiv.org/abs/2104.03838)
     - [x] Implement n2n training scheme
 - [ ] Look into more noise2clean models & research papers
+- [ ] Look into [WavLM](https://arxiv.org/abs/2110.13900)
 - Models to look into
     - [ ] Conv-TasNet
     - [ ] Diffusion-based speech enhancement
